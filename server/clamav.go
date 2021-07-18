@@ -27,11 +27,11 @@ THE SOFTWARE.
 package server
 
 import (
-	// _ "transfer.sh/app/handlers"
-	// _ "transfer.sh/app/utils"
-
+	"bytes"
+	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"time"
 
@@ -39,6 +39,9 @@ import (
 
 	"github.com/gorilla/mux"
 )
+
+const clamavScanStatusOK = "OK"
+
 
 func (s *Server) scanHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -50,26 +53,44 @@ func (s *Server) scanHandler(w http.ResponseWriter, r *http.Request) {
 
 	s.logger.Printf("Scanning %s %d %s", filename, contentLength, contentType)
 
-	var reader io.Reader
+	var reader io.ReadSeeker
 
-	reader = r.Body
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		s.logger.Printf("%s", err.Error())
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	reader = bytes.NewReader(body)
 
-	c := clamd.NewClamd(s.ClamAVDaemonHost)
-
-	abort := make(chan bool)
-	response, err := c.ScanStream(reader, abort)
+	status, err := s.performScan(reader)
 	if err != nil {
 		s.logger.Printf("%s", err.Error())
 		http.Error(w, err.Error(), 500)
 		return
 	}
 
+	w.Write([]byte(fmt.Sprintf("%v\n", status)))
+}
+
+func (s *Server) performScan(reader io.ReadSeeker) (string, error) {
+	defer reader.Seek(0, io.SeekStart)
+	c := clamd.NewClamd(s.ClamAVDaemonHost)
+
+	abort := make(chan bool)
+	response, err := c.ScanStream(reader, abort)
+	if err != nil {
+		return "", err
+	}
+
 	select {
 	case s := <-response:
-		w.Write([]byte(fmt.Sprintf("%v\n", s.Status)))
+		return s.Status, nil
 	case <-time.After(time.Second * 60):
 		abort <- true
 	}
 
 	close(abort)
+
+	return "", errors.New("clamav scan timeout")
 }

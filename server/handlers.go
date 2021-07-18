@@ -324,7 +324,7 @@ func (s *Server) postHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			var file *os.File
-			var reader io.Reader
+			var reader io.ReadSeeker
 
 			if n > _24K {
 				file, err = ioutil.TempFile(s.tempPath, "transfer-")
@@ -342,6 +342,13 @@ func (s *Server) postHandler(w http.ResponseWriter, r *http.Request) {
 				}
 
 				reader, err = os.Open(file.Name())
+				if err != nil {
+					s.cleanTmpFile(file)
+
+					s.logger.Printf("%s", err.Error())
+					http.Error(w, err.Error(), 500)
+					return
+				}
 			} else {
 				reader = bytes.NewReader(b.Bytes())
 			}
@@ -352,6 +359,21 @@ func (s *Server) postHandler(w http.ResponseWriter, r *http.Request) {
 				s.logger.Print("Entity too large")
 				http.Error(w, http.StatusText(http.StatusRequestEntityTooLarge), http.StatusRequestEntityTooLarge)
 				return
+			}
+
+			if s.performClamavPrescan {
+				status, err := s.performScan(reader)
+				if err != nil {
+					s.logger.Printf("%s", err.Error())
+					http.Error(w, errors.New("Could not perform prescan").Error(), 500)
+					return
+				}
+
+				if status != clamavScanStatusOK {
+					s.logger.Printf("prescan failed: %s",status)
+					http.Error(w, errors.New("Could clamav prescan found a virus").Error(), http.StatusPreconditionFailed)
+					return
+				}
 			}
 
 			metadata := MetadataForRequest(contentType, s.randomTokenLength, r)
@@ -449,9 +471,15 @@ func (s *Server) putHandler(w http.ResponseWriter, r *http.Request) {
 
 	contentLength := r.ContentLength
 
-	var reader io.Reader
+	var reader io.ReadSeeker
 
-	reader = r.Body
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		s.logger.Printf("%s", err.Error())
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	reader = bytes.NewReader(body)
 
 	defer r.Body.Close()
 
@@ -472,6 +500,7 @@ func (s *Server) putHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var file *os.File
+		defer s.cleanTmpFile(file)
 
 		if n > _24K {
 			file, err = ioutil.TempFile(s.tempPath, "transfer-")
@@ -481,8 +510,6 @@ func (s *Server) putHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			defer s.cleanTmpFile(file)
-
 			n, err = io.Copy(file, io.MultiReader(&b, f))
 			if err != nil {
 				s.logger.Printf("%s", err.Error())
@@ -491,11 +518,33 @@ func (s *Server) putHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			reader, err = os.Open(file.Name())
+			if err != nil {
+				s.logger.Printf("%s", err.Error())
+				http.Error(w, err.Error(), 500)
+				return
+			}
 		} else {
 			reader = bytes.NewReader(b.Bytes())
 		}
 
 		contentLength = n
+	}
+
+	if s.performClamavPrescan {
+		status, err := s.performScan(reader)
+		if err != nil {
+			s.logger.Printf("%s", err.Error())
+			http.Error(w, errors.New("Could not perform prescan").Error(), 500)
+			return
+		}
+
+		if status != clamavScanStatusOK {
+			s.logger.Printf("prescan failed: %s",status)
+			http.Error(w, errors.New("Could clamav prescan found a virus").Error(), http.StatusPreconditionFailed)
+			return
+		}
+
+		reader.Seek(0, io.SeekStart)
 	}
 
 	if s.maxUploadSize > 0 && contentLength > s.maxUploadSize {
@@ -529,15 +578,11 @@ func (s *Server) putHandler(w http.ResponseWriter, r *http.Request) {
 
 	s.logger.Printf("Uploading %s %s %d %s", token, filename, contentLength, contentType)
 
-	var err error
-
-	if err = s.storage.Put(token, filename, reader, contentType, uint64(contentLength)); err != nil {
+	if err := s.storage.Put(token, filename, reader, contentType, uint64(contentLength)); err != nil {
 		s.logger.Printf("Error putting new file: %s", err.Error())
 		http.Error(w, errors.New("Could not save file").Error(), 500)
 		return
 	}
-
-	// w.Statuscode = 200
 
 	w.Header().Set("Content-Type", "text/plain")
 
@@ -1045,13 +1090,13 @@ func (s *Server) getHandler(w http.ResponseWriter, r *http.Request) {
 
 	if w.Header().Get("Range") != "" || strings.HasPrefix(metadata.ContentType, "video") || strings.HasPrefix(metadata.ContentType, "audio") {
 		file, err := ioutil.TempFile(s.tempPath, "range-")
+		defer s.cleanTmpFile(file)
+
 		if err != nil {
 			s.logger.Printf("%s", err.Error())
 			http.Error(w, "Error occurred copying to output stream", 500)
 			return
 		}
-
-		defer s.cleanTmpFile(file)
 
 		_, err = io.Copy(file, reader)
 		if err != nil {

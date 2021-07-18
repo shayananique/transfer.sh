@@ -75,6 +75,12 @@ func ClamavHost(s string) OptionFn {
 	}
 }
 
+func PerformClamavPrescan(b bool) OptionFn {
+	return func(srvr *Server) {
+		srvr.performClamavPrescan = b
+	}
+}
+
 func VirustotalKey(s string) OptionFn {
 	return func(srvr *Server) {
 		srvr.VirusTotalKey = s
@@ -299,6 +305,7 @@ type Server struct {
 	storage Storage
 
 	forceHTTPs bool
+	performClamavPrescan bool
 
 	randomTokenLength int
 
