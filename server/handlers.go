@@ -365,7 +365,7 @@ func (s *Server) postHandler(w http.ResponseWriter, r *http.Request) {
 				status, err := s.performScan(reader)
 				if err != nil {
 					s.logger.Printf("%s", err.Error())
-					http.Error(w, errors.New("Could not perform prescan").Error(), 500)
+					http.Error(w, errors.New("Could not perform prescan").Error(), http.StatusInternalServerError)
 					return
 				}
 
@@ -476,7 +476,7 @@ func (s *Server) putHandler(w http.ResponseWriter, r *http.Request) {
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		s.logger.Printf("%s", err.Error())
-		http.Error(w, err.Error(), 500)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	reader = bytes.NewReader(body)
@@ -534,7 +534,7 @@ func (s *Server) putHandler(w http.ResponseWriter, r *http.Request) {
 		status, err := s.performScan(reader)
 		if err != nil {
 			s.logger.Printf("%s", err.Error())
-			http.Error(w, errors.New("Could not perform prescan").Error(), 500)
+			http.Error(w, errors.New("Could not perform prescan").Error(), http.StatusInternalServerError)
 			return
 		}
 
@@ -543,8 +543,6 @@ func (s *Server) putHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, errors.New("Clamav prescan found a virus").Error(), http.StatusPreconditionFailed)
 			return
 		}
-
-		reader.Seek(0, io.SeekStart)
 	}
 
 	if s.maxUploadSize > 0 && contentLength > s.maxUploadSize {
