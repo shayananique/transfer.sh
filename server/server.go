@@ -302,7 +302,7 @@ type Server struct {
 
 	storage Storage
 
-	forceHTTPs bool
+	forceHTTPs           bool
 	performClamavPrescan bool
 
 	randomTokenLength int

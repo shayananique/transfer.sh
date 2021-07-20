@@ -35,7 +35,6 @@ import (
 	virustotal "github.com/dutchcoders/go-virustotal"
 )
 
-
 func (s *Server) virusTotalHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 

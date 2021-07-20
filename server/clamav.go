@@ -40,7 +40,6 @@ import (
 
 const clamavScanStatusOK = "OK"
 
-
 func (s *Server) scanHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 

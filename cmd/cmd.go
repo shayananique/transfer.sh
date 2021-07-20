@@ -234,8 +234,8 @@ var globalFlags = []cli.Flag{
 		EnvVar: "CLAMAV_HOST",
 	},
 	cli.BoolFlag{
-		Name: "perform-clamav-prescan",
-		Usage: "perform-clamav-prescan",
+		Name:   "perform-clamav-prescan",
+		Usage:  "perform-clamav-prescan",
 		EnvVar: "PERFORM_CLAMAV_PRESCAN",
 	},
 	cli.StringFlag{
