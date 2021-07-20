@@ -314,46 +314,34 @@ func (s *Server) postHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			var b bytes.Buffer
+			var file *os.File
 
-			n, err := io.CopyN(&b, f, _24K+1)
-			if err != nil && err != io.EOF {
+			file, err = ioutil.TempFile(s.tempPath, "transfer-")
+			if err != nil {
+				s.logger.Printf("%s", err.Error())
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			n, err := io.Copy(file, f)
+			if err != nil {
+				s.cleanTmpFile(file)
+
 				s.logger.Printf("%s", err.Error())
 				http.Error(w, err.Error(), 500)
 				return
 			}
 
-			var file *os.File
-			var reader io.ReadSeeker
-
-			if n > _24K {
-				file, err = ioutil.TempFile(s.tempPath, "transfer-")
-				if err != nil {
-					s.logger.Fatal(err)
-				}
-
-				n, err = io.Copy(file, io.MultiReader(&b, f))
-				if err != nil {
-					s.cleanTmpFile(file)
-
-					s.logger.Printf("%s", err.Error())
-					http.Error(w, err.Error(), 500)
-					return
-				}
-
-				reader, err = os.Open(file.Name())
-				if err != nil {
-					s.cleanTmpFile(file)
-
-					s.logger.Printf("%s", err.Error())
-					http.Error(w, err.Error(), 500)
-					return
-				}
-			} else {
-				reader = bytes.NewReader(b.Bytes())
-			}
-
 			contentLength := n
+
+			_, err = file.Seek(0, io.SeekStart)
+			if err != nil {
+				s.logger.Printf("%s", err.Error())
+				http.Error(w, errors.New("Cannot reset cache file").Error(), http.StatusInternalServerError)
+
+				s.cleanTmpFile(file)
+				return
+			}
 
 			if s.maxUploadSize > 0 && contentLength > s.maxUploadSize {
 				s.logger.Print("Entity too large")
@@ -362,7 +350,7 @@ func (s *Server) postHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if s.performClamavPrescan {
-				status, err := s.performScan(reader)
+				status, err := s.performScan(file.Name())
 				if err != nil {
 					s.logger.Printf("%s", err.Error())
 					http.Error(w, errors.New("Could not perform prescan").Error(), http.StatusInternalServerError)
@@ -395,7 +383,7 @@ func (s *Server) postHandler(w http.ResponseWriter, r *http.Request) {
 
 			s.logger.Printf("Uploading %s %s %d %s", token, filename, contentLength, contentType)
 
-			if err = s.storage.Put(token, filename, reader, contentType, uint64(contentLength)); err != nil {
+			if err = s.storage.Put(token, filename, file, contentType, uint64(contentLength)); err != nil {
 				s.logger.Printf("Backend storage error: %s", err.Error())
 				http.Error(w, err.Error(), 500)
 				return
@@ -471,67 +459,43 @@ func (s *Server) putHandler(w http.ResponseWriter, r *http.Request) {
 
 	contentLength := r.ContentLength
 
-	var reader io.ReadSeeker
-
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		s.logger.Printf("%s", err.Error())
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	reader = bytes.NewReader(body)
-
 	defer r.Body.Close()
 
-	if contentLength == -1 {
-		// queue file to disk, because s3 needs content length
-		var err error
-		var f io.Reader
+	var err error
+	var file *os.File
+	defer s.cleanTmpFile(file)
 
-		f = reader
+	file, err = ioutil.TempFile(s.tempPath, "transfer-")
+	if err != nil {
+		s.logger.Printf("%s", err.Error())
+		http.Error(w, err.Error(), 500)
+		return
+	}
 
-		var b bytes.Buffer
+	// queue file to disk, because s3 needs content length
+	// and clamav prescan scans a file
+	n, err := io.Copy(file, r.Body)
+	if err != nil {
+		s.logger.Printf("%s", err.Error())
+		http.Error(w, err.Error(), 500)
+		return
+	}
 
-		n, err := io.CopyN(&b, f, _24K+1)
-		if err != nil && err != io.EOF {
-			s.logger.Printf("Error putting new file: %s", err.Error())
-			http.Error(w, err.Error(), 500)
-			return
-		}
+	_, err = file.Seek(0, io.SeekStart)
+	if err != nil {
+		s.logger.Printf("%s", err.Error())
+		http.Error(w, errors.New("Cannot reset cache file").Error(), http.StatusInternalServerError)
 
-		var file *os.File
-		defer s.cleanTmpFile(file)
+		s.cleanTmpFile(file)
+		return
+	}
 
-		if n > _24K {
-			file, err = ioutil.TempFile(s.tempPath, "transfer-")
-			if err != nil {
-				s.logger.Printf("%s", err.Error())
-				http.Error(w, err.Error(), 500)
-				return
-			}
-
-			n, err = io.Copy(file, io.MultiReader(&b, f))
-			if err != nil {
-				s.logger.Printf("%s", err.Error())
-				http.Error(w, err.Error(), 500)
-				return
-			}
-
-			reader, err = os.Open(file.Name())
-			if err != nil {
-				s.logger.Printf("%s", err.Error())
-				http.Error(w, err.Error(), 500)
-				return
-			}
-		} else {
-			reader = bytes.NewReader(b.Bytes())
-		}
-
+	if contentLength < 1 {
 		contentLength = n
 	}
 
 	if s.performClamavPrescan {
-		status, err := s.performScan(reader)
+		status, err := s.performScan(file.Name())
 		if err != nil {
 			s.logger.Printf("%s", err.Error())
 			http.Error(w, errors.New("Could not perform prescan").Error(), http.StatusInternalServerError)
@@ -576,7 +540,7 @@ func (s *Server) putHandler(w http.ResponseWriter, r *http.Request) {
 
 	s.logger.Printf("Uploading %s %s %d %s", token, filename, contentLength, contentType)
 
-	if err := s.storage.Put(token, filename, reader, contentType, uint64(contentLength)); err != nil {
+	if err := s.storage.Put(token, filename, file, contentType, uint64(contentLength)); err != nil {
 		s.logger.Printf("Error putting new file: %s", err.Error())
 		http.Error(w, errors.New("Could not save file").Error(), 500)
 		return

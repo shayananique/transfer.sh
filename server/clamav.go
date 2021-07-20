@@ -27,15 +27,13 @@ THE SOFTWARE.
 package server
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
+	clamd "github.com/dutchcoders/go-clamd"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"time"
-
-	clamd "github.com/dutchcoders/go-clamd"
 
 	"github.com/gorilla/mux"
 )
@@ -53,39 +51,51 @@ func (s *Server) scanHandler(w http.ResponseWriter, r *http.Request) {
 
 	s.logger.Printf("Scanning %s %d %s", filename, contentLength, contentType)
 
-	var reader io.ReadSeeker
-
-	body, err := ioutil.ReadAll(r.Body)
+	file, err := ioutil.TempFile(s.tempPath, "clamav-")
+	defer s.cleanTmpFile(file)
 	if err != nil {
 		s.logger.Printf("%s", err.Error())
-		http.Error(w, err.Error(), 500)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	reader = bytes.NewReader(body)
 
-	status, err := s.performScan(reader)
+	_, err = io.Copy(file, r.Body)
 	if err != nil {
 		s.logger.Printf("%s", err.Error())
-		http.Error(w, err.Error(), 500)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	status, err := s.performScan(file.Name())
+	if err != nil {
+		s.logger.Printf("%s", err.Error())
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	w.Write([]byte(fmt.Sprintf("%v\n", status)))
 }
 
-func (s *Server) performScan(reader io.ReadSeeker) (string, error) {
-	defer reader.Seek(0, io.SeekStart)
+func (s *Server) performScan(path string) (string, error) {
 	c := clamd.NewClamd(s.ClamAVDaemonHost)
 
 	abort := make(chan bool)
-	response, err := c.ScanStream(reader, abort)
-	if err != nil {
-		return "", err
-	}
+	response := make(chan chan *clamd.ScanResult)
+	err := make(chan error)
+	go func(response chan chan *clamd.ScanResult, err chan error) {
+		scanResponse, scanErr := c.ScanFile(path)
+		if scanErr != nil {
+			err <- scanErr
+			return
+		}
+
+		response <- scanResponse
+	}(response, err)
 
 	select {
-	case s := <-response:
-		return s.Status, nil
+	case r := <-response:
+		st := <-r
+		return st.Status, nil
 	case <-time.After(time.Second * 60):
 		abort <- true
 	}

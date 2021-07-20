@@ -53,13 +53,11 @@ import (
 	"crypto/tls"
 
 	web "github.com/dutchcoders/transfer.sh-web"
-	assetfs "github.com/elazarl/go-bindata-assetfs"
 
-	autocert "golang.org/x/crypto/acme/autocert"
+	"github.com/elazarl/go-bindata-assetfs"
+	"golang.org/x/crypto/acme/autocert"
 	"path/filepath"
 )
-
-const SERVER_INFO = "transfer.sh"
 
 // parse request with maximum memory of _24Kilobits
 const _24K = (1 << 3) * 24
