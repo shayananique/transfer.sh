@@ -78,28 +78,25 @@ func (s *Server) scanHandler(w http.ResponseWriter, r *http.Request) {
 func (s *Server) performScan(path string) (string, error) {
 	c := clamd.NewClamd(s.ClamAVDaemonHost)
 
-	abort := make(chan bool)
-	response := make(chan chan *clamd.ScanResult)
-	err := make(chan error)
-	go func(response chan chan *clamd.ScanResult, err chan error) {
-		scanResponse, scanErr := c.ScanFile(path)
-		if scanErr != nil {
-			err <- scanErr
+	responseCh := make(chan chan *clamd.ScanResult)
+	errCh := make(chan error)
+	go func(responseCh chan chan *clamd.ScanResult, errCh chan error) {
+		response, err := c.ScanFile(path)
+		if err != nil {
+			errCh <- err
 			return
 		}
 
-		response <- scanResponse
-	}(response, err)
+		responseCh <- response
+	}(responseCh, errCh)
 
 	select {
-	case r := <-response:
-		st := <-r
+	case err := <-errCh:
+		return "", err
+	case response := <-responseCh:
+		st := <-response
 		return st.Status, nil
 	case <-time.After(time.Second * 60):
-		abort <- true
+		return "", errors.New("clamav scan timeout")
 	}
-
-	close(abort)
-
-	return "", errors.New("clamav scan timeout")
 }
