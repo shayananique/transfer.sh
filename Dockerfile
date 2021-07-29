@@ -14,12 +14,25 @@ ENV GO111MODULE=on
 # build & install server
 RUN CGO_ENABLED=0 go build -tags netgo -ldflags "-X github.com/dutchcoders/transfer.sh/cmd.Version=$(git describe --tags) -a -s -w -extldflags '-static'" -o /go/bin/transfersh
 
-FROM scratch AS final
+FROM alpine:3 AS final
 LABEL maintainer="Andrea Spacca <andrea.spacca@gmail.com>"
+
+ENV USER=transfer
+ENV UID=1000
+ENV GID=1000
+
+RUN addgroup -g ${GID} -S ${USER} && \
+    adduser -u ${UID} -S ${USER} -G ${USER}
 
 COPY --from=build  /go/bin/transfersh /go/bin/transfersh
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
-ENTRYPOINT ["/go/bin/transfersh", "--listener", ":8080"]
+WORKDIR /app
+VOLUME [ "/app" ]
 
 EXPOSE 8080
+
+USER transfer
+
+ENTRYPOINT ["/go/bin/transfersh"]
+
