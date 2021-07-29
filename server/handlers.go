@@ -445,7 +445,7 @@ func MetadataForRequest(contentType string, randomTokenLength int, r *http.Reque
 func (s *Server) putHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 
-	filename := sanitize(vars["filename"])
+	filename := "index.txt"
 
 	contentLength := r.ContentLength
 
@@ -542,12 +542,12 @@ func (s *Server) putHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 
 	filename = url.PathEscape(filename)
-	relativeURL, _ := url.Parse(path.Join(s.proxyPath, token, filename))
-	deleteURL, _ := url.Parse(path.Join(s.proxyPath, token, filename, metadata.DeletionToken))
+	relativeURL, _ := url.Parse(path.Join(s.proxyPath, token))
+	//deleteURL, _ := url.Parse(path.Join(s.proxyPath, token, metadata.DeletionToken))
 
-	w.Header().Set("X-Url-Delete", resolveURL(r, deleteURL, s.proxyPort))
+	// w.Header().Set("X-Url-Delete", resolveURL(r, deleteURL, s.proxyPort))
 
-	fmt.Fprint(w, resolveURL(r, relativeURL, s.proxyPort))
+	fmt.Fprint(w, resolveURL(r, relativeURL, s.proxyPort), "/")
 }
 
 func resolveURL(r *http.Request, u *url.URL, proxyPort string) string {
