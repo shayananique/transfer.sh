@@ -28,7 +28,6 @@ import (
 	crypto_rand "crypto/rand"
 	"encoding/binary"
 	"errors"
-	gorillaHandlers "github.com/gorilla/handlers"
 	"log"
 	"math/rand"
 	"mime"
@@ -40,6 +39,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	gorillaHandlers "github.com/gorilla/handlers"
 
 	context "golang.org/x/net/context"
 
@@ -55,8 +56,9 @@ import (
 	web "github.com/dutchcoders/transfer.sh-web"
 	assetfs "github.com/elazarl/go-bindata-assetfs"
 
-	autocert "golang.org/x/crypto/acme/autocert"
 	"path/filepath"
+
+	autocert "golang.org/x/crypto/acme/autocert"
 )
 
 const SERVER_INFO = "transfer.sh"
@@ -246,6 +248,12 @@ func UseLetsEncrypt(hosts []string) OptionFn {
 	}
 }
 
+func ANSI2HTMLScriptURL(url string) OptionFn {
+	return func(srvr *Server) {
+		srvr.ANSI2HTMLScriptURL = url
+	}
+}
+
 func TLSConfig(cert, pk string) OptionFn {
 	certificate, err := tls.LoadX509KeyPair(cert, pk)
 	return func(srvr *Server) {
@@ -324,7 +332,8 @@ type Server struct {
 
 	Certificate string
 
-	LetsEncryptCache string
+	LetsEncryptCache   string
+	ANSI2HTMLScriptURL string
 }
 
 func New(options ...OptionFn) (*Server, error) {
@@ -358,6 +367,11 @@ func (s *Server) Run() {
 
 			http.ListenAndServe(":6060", nil)
 		}()
+	}
+
+	err := initANSI2HTML(s.ANSI2HTMLScriptURL)
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	r := mux.NewRouter()

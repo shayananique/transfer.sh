@@ -115,6 +115,7 @@ max-upload-size | max upload size in kilobytes  | | MAX_UPLOAD_SIZE |
 purge-days | number of days after the uploads are purged automatically | | PURGE_DAYS |   
 purge-interval | interval in hours to run the automatic purge for (not applicable to S3 and Storj) | | PURGE_INTERVAL |   
 random-token-length | length of the random token for the upload path (double the size for delete path) | 6 | RANDOM_TOKEN_LENGTH |   
+ansi2html-script-url | url to download ansi -> html parser script (supports url scheme: file, http, https) | | ANSI2HTML_SCRIPT_URL |   
 
 If you want to use TLS using lets encrypt certificates, set lets-encrypt-hosts to your domain, set tls-listener to :443 and enable force-https.
 

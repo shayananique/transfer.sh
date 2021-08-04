@@ -280,6 +280,12 @@ var globalFlags = []cli.Flag{
 		Value:  6,
 		EnvVar: "RANDOM_TOKEN_LENGTH",
 	},
+	cli.StringFlag{
+		Name:   "ansi2html-script-url",
+		Usage:  "url to download ansi -> html parser script (supports url scheme: file, http, https)",
+		Value:  "",
+		EnvVar: "ANSI2HTML_SCRIPT_URL",
+	},
 }
 
 type Cmd struct {
@@ -343,6 +349,10 @@ func New() *Cmd {
 
 		if v := c.String("proxy-port"); v != "" {
 			options = append(options, server.ProxyPort(v))
+		}
+
+		if v := c.String("ansi2html-script-url"); v != "" {
+			options = append(options, server.ANSI2HTMLScriptURL(v))
 		}
 
 		if v := c.String("ga-key"); v != "" {

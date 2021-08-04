@@ -17,6 +17,9 @@ RUN CGO_ENABLED=0 go build -tags netgo -ldflags "-X github.com/dutchcoders/trans
 FROM alpine:3 AS final
 LABEL maintainer="Andrea Spacca <andrea.spacca@gmail.com>"
 
+# gawk and GNU sed are required for the ansi2html.sh script.
+RUN apk add --no-cache gawk sed
+
 ENV USER=transfer
 ENV UID=1000
 ENV GID=1000

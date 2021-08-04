@@ -37,7 +37,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	blackfriday "github.com/russross/blackfriday/v2"
 	"html"
 	html_template "html/template"
 	"io"
@@ -54,9 +53,12 @@ import (
 	text_template "text/template"
 	"time"
 
+	blackfriday "github.com/russross/blackfriday/v2"
+
 	"net"
 
 	"encoding/base64"
+
 	web "github.com/dutchcoders/transfer.sh-web"
 	"github.com/gorilla/mux"
 	"github.com/microcosm-cc/bluemonday"
@@ -443,9 +445,11 @@ func MetadataForRequest(contentType string, randomTokenLength int, r *http.Reque
 }
 
 func (s *Server) putHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
+	//vars := mux.Vars(r)
 
-	filename := "index.txt"
+	var err error
+
+	filename := "index.html"
 
 	contentLength := r.ContentLength
 
@@ -498,6 +502,39 @@ func (s *Server) putHandler(w http.ResponseWriter, r *http.Request) {
 		contentLength = n
 	}
 
+	output := bytes.Buffer{}
+	if s.ANSI2HTMLScriptURL != "" {
+		// read body into a string buffer for ansi->html conversion
+		sb := strings.Builder{}
+		_, err = io.Copy(&sb, reader)
+		if err != nil {
+			s.logger.Printf("Error reading body into buffer: %s", err.Error())
+			http.Error(w, err.Error(), 500)
+			return
+		}
+
+		// perform ansi conversion and assign output back to an io.Reader
+		html, err := ansi2HTML(sb.String())
+		if err != nil {
+			s.logger.Printf("Error converting ansi to html: %s", err.Error())
+			http.Error(w, err.Error(), 500)
+			return
+		}
+
+		// retrieve the new content length of the html output
+		contentLength, err = output.ReadFrom(html)
+		if err != nil {
+			fmt.Println("Error updating content length: ", err.Error())
+		}
+	} else {
+		_, err := output.ReadFrom(reader)
+		if err != nil {
+			s.logger.Printf("%s", err.Error())
+			http.Error(w, errors.New("Error reading body to output").Error(), 500)
+			return
+		}
+	}
+
 	if s.maxUploadSize > 0 && contentLength > s.maxUploadSize {
 		s.logger.Print("Entity too large")
 		http.Error(w, http.StatusText(http.StatusRequestEntityTooLarge), http.StatusRequestEntityTooLarge)
@@ -510,7 +547,7 @@ func (s *Server) putHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	contentType := mime.TypeByExtension(filepath.Ext(vars["filename"]))
+	contentType := mime.TypeByExtension(filepath.Ext(filename))
 
 	token := Token(s.randomTokenLength)
 
@@ -529,9 +566,7 @@ func (s *Server) putHandler(w http.ResponseWriter, r *http.Request) {
 
 	s.logger.Printf("Uploading %s %s %d %s", token, filename, contentLength, contentType)
 
-	var err error
-
-	if err = s.storage.Put(token, filename, reader, contentType, uint64(contentLength)); err != nil {
+	if err = s.storage.Put(token, filename, &output, contentType, uint64(contentLength)); err != nil {
 		s.logger.Printf("Error putting new file: %s", err.Error())
 		http.Error(w, errors.New("Could not save file").Error(), 500)
 		return

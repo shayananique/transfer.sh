@@ -28,9 +28,14 @@ package server
 
 import (
 	"fmt"
+	"io"
+	"log"
 	"math"
 	"net/http"
 	"net/mail"
+	"net/url"
+	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 
@@ -278,4 +283,76 @@ func formatSize(size int64) string {
 
 	getSuffix := suffixes[int(math.Floor(base))]
 	return fmt.Sprintf("%s %s", strconv.FormatFloat(newVal, 'f', -1, 64), getSuffix)
+}
+
+// ansi2HTML transforms coloured ANSI console output into coloured HTML
+func ansi2HTML(ansi string) (io.ReadCloser, error) {
+	ansi2html := exec.Command("sh", "ansi2html.sh", "--bg=dark", "--palette=tango")
+	in, err := ansi2html.StdinPipe()
+	if err != nil {
+		log.Println("ansi2html exec stdin pipe err: ", err)
+		return nil, err
+	}
+	out, err := ansi2html.StdoutPipe()
+	if err != nil {
+		log.Println("ansi2html exec stdout pipe err: ", err)
+		return nil, err
+	}
+
+	go func() {
+		err = ansi2html.Start()
+		if err != nil {
+			log.Println("ansi2html exec start err", err)
+		}
+		in.Write([]byte(ansi))
+		in.Close()
+
+		err = ansi2html.Wait()
+		if err != nil {
+			log.Println("ansi2html exec wait err: ", err)
+		}
+	}()
+	return out, nil
+}
+
+// initANSI2HTML writes ansi2html.sh script out to a file so it can be used
+func initANSI2HTML(scriptURL string) error {
+	var reader io.ReadCloser
+	if scriptURL == "" {
+		return nil
+	}
+
+	parsed, err := url.Parse(scriptURL)
+	if err != nil {
+		return err
+	}
+
+	switch scheme := parsed.Scheme; scheme {
+	case "file":
+		log.Println("loading ansi2html via file: ", scriptURL)
+		file, err := os.Open(parsed.Path)
+		if err != nil {
+			return err
+		}
+		reader = file
+
+	case "http", "https":
+		log.Println("Downloading ansi2html.sh from URL: ", scriptURL)
+		resp, err := http.Get(scriptURL)
+		if err != nil {
+			return err
+		}
+		reader = resp.Body
+		defer resp.Body.Close()
+
+	default:
+		return fmt.Errorf("unsupported ansi2html script URL: %q", scriptURL)
+	}
+	out, err := os.Create("ansi2html.sh")
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, reader)
+	return err
 }
