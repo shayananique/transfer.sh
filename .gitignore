@@ -21,4 +21,4 @@ transfersh-server/run.sh
 !.elasticbeanstalk/*.cfg.yml
 !.elasticbeanstalk/*.global.yml
 
-ansi2html.sh
+ansi2html

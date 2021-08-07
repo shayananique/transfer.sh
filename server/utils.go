@@ -287,7 +287,7 @@ func formatSize(size int64) string {
 
 // ansi2HTML transforms coloured ANSI console output into coloured HTML
 func ansi2HTML(ansi string) (io.ReadCloser, error) {
-	ansi2html := exec.Command("sh", "ansi2html.sh", "--bg=dark", "--palette=tango")
+	ansi2html := exec.Command("./ansi2html", "--bg=dark", "--palette=tango")
 	in, err := ansi2html.StdinPipe()
 	if err != nil {
 		log.Println("ansi2html exec stdin pipe err: ", err)
@@ -315,8 +315,9 @@ func ansi2HTML(ansi string) (io.ReadCloser, error) {
 	return out, nil
 }
 
-// initANSI2HTML writes ansi2html.sh script out to a file so it can be used
+// initANSI2HTML creates an executable ansi2html script if provided
 func initANSI2HTML(scriptURL string) error {
+	scriptName := "ansi2html"
 	var reader io.ReadCloser
 	if scriptURL == "" {
 		return nil
@@ -329,7 +330,7 @@ func initANSI2HTML(scriptURL string) error {
 
 	switch scheme := parsed.Scheme; scheme {
 	case "file":
-		log.Println("loading ansi2html via file: ", scriptURL)
+		log.Println("loading ansi2html script via file: ", scriptURL)
 		file, err := os.Open(parsed.Path)
 		if err != nil {
 			return err
@@ -337,7 +338,7 @@ func initANSI2HTML(scriptURL string) error {
 		reader = file
 
 	case "http", "https":
-		log.Println("Downloading ansi2html.sh from URL: ", scriptURL)
+		log.Println("downloading ansi2html script from URL: ", scriptURL)
 		resp, err := http.Get(scriptURL)
 		if err != nil {
 			return err
@@ -348,11 +349,15 @@ func initANSI2HTML(scriptURL string) error {
 	default:
 		return fmt.Errorf("unsupported ansi2html script URL: %q", scriptURL)
 	}
-	out, err := os.Create("ansi2html.sh")
+	out, err := os.Create(scriptName)
 	if err != nil {
 		return err
 	}
 	defer out.Close()
 	_, err = io.Copy(out, reader)
+	if err != nil {
+		return err
+	}
+	err = os.Chmod(scriptName, 0744)
 	return err
 }
